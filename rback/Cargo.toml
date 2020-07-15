@@ -1,0 +1,10 @@
+[package]
+name = "rback"
+version = "0.1.0"
+authors = ["John Murray <5672686+JRMurr@users.noreply.github.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+laminar = "0.3.2"
