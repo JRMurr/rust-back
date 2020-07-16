@@ -8,3 +8,12 @@ edition = "2018"
 
 [dependencies]
 laminar = "0.3.2"
+
+
+[lib]
+name = "rback"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rback"
+path = "src/bin.rs"
