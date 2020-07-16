@@ -1,8 +1,9 @@
+use crate::network::message::NetworkMessage;
+use bincode::{deserialize, serialize};
 use laminar::{Packet, Socket, SocketEvent};
 use std::net::SocketAddr;
 use std::time::Instant;
 
-#[derive(Debug)]
 /// Handles sending and receiving packets
 pub struct NetworkHandler {
     /// Listens and sends packets
@@ -28,17 +29,20 @@ impl NetworkHandler {
         // let mut messages: Vec::new();
         while let Some(event) = self.socket.recv() {
             match event {
-                SocketEvent::Packet(packet) => println!("packet: {:#?}", packet),
+                SocketEvent::Packet(packet) => {
+                    let msg = deserialize::<NetworkMessage>(packet.payload()).unwrap();
+                    println!("message: {:#?}", msg);
+                }
                 SocketEvent::Connect(addr) => println!("Connect: {:#?}", addr),
                 SocketEvent::Timeout(addr) => println!("Timeout: {:#?}", addr),
             }
         }
     }
 
-    pub fn send_msg(&mut self, msg: &str) {
+    pub fn send_msg(&mut self, payload: &NetworkMessage) {
         // TODO: allow multiple msgs/toggle poll since it will send multiple
-        let payload = msg.as_bytes().to_vec();
-        let packet = Packet::unreliable(self.remote_addr, payload);
+        // let payload = msg.as_bytes().to_vec();
+        let packet = Packet::unreliable(self.remote_addr, serialize(payload).unwrap());
         match self.socket.send(packet) {
             Ok(()) => self.socket.manual_poll(Instant::now()),
             Err(e) => println!("error on send: {:#?}", e),
@@ -64,7 +68,8 @@ mod tests {
     fn it_works() {
         let mut local = NetworkHandler::new(server_address(), remote_address());
         let mut remote = NetworkHandler::new(remote_address(), server_address());
-        local.send_msg("hi");
+        let payload = NetworkMessage::make_input("big poggers bro");
+        local.send_msg(&payload);
         remote.get_messages();
     }
 }
