@@ -1,0 +1,4 @@
+max_width = 120
+# these might be nightly only still
+merge_imports = true
+wrap_comments = true

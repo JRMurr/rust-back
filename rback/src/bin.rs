@@ -1,5 +1,4 @@
-use rback::network::message::NetworkMessage;
-use rback::network::udp::NetworkHandler;
+use rback::network::{message::NetworkMessage, udp::NetworkHandler};
 use std::net::SocketAddr;
 
 fn main() {
@@ -16,7 +15,7 @@ fn main() {
 
     let mut local = NetworkHandler::new(server_address(), remote_address());
     let mut remote = NetworkHandler::new(remote_address(), server_address());
-    let payload = NetworkMessage::make_input("big poggers bro");
-    local.send_msg(&payload);
+    let payload = NetworkMessage::make_input("hello");
+    local.send_msg_now(&payload).unwrap();
     remote.get_messages();
 }

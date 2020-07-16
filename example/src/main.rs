@@ -1,6 +1,10 @@
-use ggez::event::{KeyCode, KeyMods};
-use ggez::nalgebra::{Point2, Vector2};
-use ggez::{event, graphics, nalgebra as na, Context, GameResult};
+use ggez::{
+    event,
+    event::{KeyCode, KeyMods},
+    graphics, nalgebra as na,
+    nalgebra::{Point2, Vector2},
+    Context, GameResult,
+};
 enum Direction {
     Up,
     Down,
@@ -108,13 +112,7 @@ impl event::EventHandler for MainState {
         Ok(())
     }
 
-    fn key_down_event(
-        &mut self,
-        ctx: &mut Context,
-        keycode: KeyCode,
-        _keymod: KeyMods,
-        _repeat: bool,
-    ) {
+    fn key_down_event(&mut self, ctx: &mut Context, keycode: KeyCode, _keymod: KeyMods, _repeat: bool) {
         if let Some(dir) = Direction::from_keycode(keycode) {
             let force: Vector2<f32> = match dir {
                 Direction::Up => Vector2::new(0.0, -1.0),
