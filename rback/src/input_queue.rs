@@ -1,4 +1,4 @@
-use crate::{game_input::GameInput, FrameSize};
+use crate::{game_input_frame::GameInputFrame, FrameSize, GameInput};
 use log::info;
 use std::{
     cmp::min,
@@ -60,24 +60,24 @@ type FrameIndex = Option<FrameSize>;
 
 #[derive(Debug)]
 /// Queue of inputs for a single player in the game
-pub struct InputQueue<T: Clone + Debug + PartialEq> {
-    queue: VecDeque<GameInput<T>>, // TODO: maybe make this a box type to reduce/remove clones
+pub struct InputQueue<T: GameInput> {
+    queue: VecDeque<GameInputFrame<T>>, // TODO: maybe make this a box type to reduce/remove clones
+    frame_delay: FrameSize,
+    prediction: GameInputFrame<T>,
     /// Frame number of the last user added input
     last_user_added_frame: FrameIndex,
-    last_added_frame: FrameIndex,
-    frame_delay: FrameSize,
-    prediction: GameInput<T>,
-    first_incorrect_frame: FrameIndex,
+    pub(crate) last_added_frame: FrameIndex,
+    pub(crate) first_incorrect_frame: FrameIndex,
     last_frame_requested: FrameIndex,
 }
 
-impl<T: Clone + Debug + PartialEq> Default for InputQueue<T> {
+impl<T: GameInput> Default for InputQueue<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Clone + Debug + PartialEq> InputQueue<T> {
+impl<T: GameInput> InputQueue<T> {
     pub fn new() -> Self {
         // TODO: maybe use with capacity or reserve size of queue to prevent extra
         // allocations
@@ -86,12 +86,13 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
             last_user_added_frame: None,
             last_added_frame: None,
             frame_delay: 0,
-            prediction: GameInput::empty_input(),
+            prediction: GameInputFrame::empty_input(),
             first_incorrect_frame: None,
             last_frame_requested: None,
         }
     }
 
+    #[inline]
     fn check_sequential(
         last_frame: FrameIndex,
         input_frame: FrameIndex,
@@ -118,7 +119,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
         Ok(input_frame)
     }
 
-    pub fn get_input(&mut self, requested_frame: FrameSize) -> Result<GameInput<T>, InputQueueError> {
+    pub fn get_input(&mut self, requested_frame: FrameSize) -> Result<GameInputFrame<T>, InputQueueError> {
         if self.first_incorrect_frame.is_some() {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L122
             return Err(InputQueueError::GetDurningPrediction);
@@ -173,7 +174,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
         Ok(input)
     }
 
-    pub fn add_input(&mut self, input: GameInput<T>) -> Result<GameInput<T>, InputQueueError> {
+    pub fn add_input(&mut self, input: GameInputFrame<T>) -> Result<GameInputFrame<T>, InputQueueError> {
         let input_frame = Self::check_sequential(self.last_user_added_frame, input.frame, true)?;
         self.last_user_added_frame = Some(input_frame);
         let new_frame = self.advance_queue_head(input_frame)?;
@@ -188,9 +189,9 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
 
     fn add_delayed_input(
         &mut self,
-        input: GameInput<T>,
+        input: GameInputFrame<T>,
         frame_num: FrameSize,
-    ) -> Result<GameInput<T>, InputQueueError> {
+    ) -> Result<GameInputFrame<T>, InputQueueError> {
         // do i need this assert? https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L221
 
         let input_frame = match self.queue.front() {
@@ -255,7 +256,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
         Ok(Some(frame))
     }
 
-    pub fn get_confirmed_input(self, requested_frame: FrameSize) -> Result<GameInput<T>, InputQueueError> {
+    pub fn get_confirmed_input(self, requested_frame: FrameSize) -> Result<GameInputFrame<T>, InputQueueError> {
         if let Some(first_incorrect_frame) = self.first_incorrect_frame {
             if requested_frame > first_incorrect_frame {
                 return Err(InputQueueError::BadFrameRequest(requested_frame, first_incorrect_frame));
@@ -267,7 +268,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
             None => false,
         });
         match input {
-            Some(game_input) => Ok(game_input.clone()),
+            Some(game_input_frame) => Ok(game_input_frame.clone()),
             None => Err(InputQueueError::FrameNotFound(requested_frame)),
         }
     }
@@ -286,6 +287,10 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
     pub fn set_frame_delay(&mut self, delay: FrameSize) {
         self.frame_delay = delay;
     }
+
+    pub fn get_length(self) -> usize {
+        self.queue.len()
+    }
 }
 
 #[cfg(test)]
@@ -295,21 +300,21 @@ mod tests {
     #[test]
     fn test_add() {
         let mut q: InputQueue<&str> = InputQueue::new();
-        let input = GameInput {
+        let input = GameInputFrame {
             frame: Some(0),
             input: Some("hi"),
         };
         let added = q.add_input(input).unwrap();
         assert_eq!(
             added,
-            GameInput {
+            GameInputFrame {
                 frame: Some(0),
                 input: Some("hi")
             }
         );
 
         // Try to add same frame number
-        let input = GameInput {
+        let input = GameInputFrame {
             frame: Some(0),
             input: Some("hello"),
         };
@@ -319,7 +324,7 @@ mod tests {
         assert_eq!(err, InputQueueError::NonSequentialUserInput(0, 1));
 
         // try bad frame number
-        let input = GameInput {
+        let input = GameInputFrame {
             frame: Some(10),
             input: Some("hello"),
         };
@@ -330,14 +335,14 @@ mod tests {
         assert_eq!(err, InputQueueError::NonSequentialUserInput(10, 1));
 
         // correct frame number
-        let input = GameInput {
+        let input = GameInputFrame {
             frame: Some(1),
             input: Some("its real"),
         };
         let added = q.add_input(input).unwrap();
         assert_eq!(
             added,
-            GameInput {
+            GameInputFrame {
                 frame: Some(1),
                 input: Some("its real")
             }
@@ -348,12 +353,12 @@ mod tests {
     fn test_get_input() -> Result<(), InputQueueError> {
         let mut q: InputQueue<&str> = InputQueue::new();
 
-        let input = GameInput {
+        let input = GameInputFrame {
             frame: Some(0),
             input: Some("hi"),
         };
         q.add_input(input)?;
-        let input = GameInput {
+        let input = GameInputFrame {
             frame: Some(1),
             input: Some("hello"),
         };
@@ -362,14 +367,14 @@ mod tests {
         // get good frames
         assert_eq!(
             q.get_input(0)?,
-            GameInput {
+            GameInputFrame {
                 frame: Some(0),
                 input: Some("hi"),
             }
         );
         assert_eq!(
             q.get_input(1)?,
-            GameInput {
+            GameInputFrame {
                 frame: Some(0),
                 input: Some("hello"),
             }
@@ -382,7 +387,7 @@ mod tests {
         // get bad frame so should try to predict based on last added frame
         assert_eq!(
             q.get_input(3)?,
-            GameInput {
+            GameInputFrame {
                 frame: Some(3),
                 input: Some("hello"),
             }
