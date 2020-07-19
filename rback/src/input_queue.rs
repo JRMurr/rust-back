@@ -1,6 +1,7 @@
 use crate::{game_input::GameInput, FrameSize};
 use log::info;
 use std::{
+    cmp::min,
     collections::VecDeque,
     error::Error,
     fmt::{self, Debug, Display, Formatter},
@@ -13,6 +14,8 @@ pub enum InputQueueError {
     // if this is thrown the library messed up somehow
     NonSequentialRollbackInput(FrameSize, FrameSize),
     BadFrameIndex(FrameSize, FrameSize),
+    BadFrameRequest(FrameSize, FrameSize),
+    FrameNotFound(FrameSize),
     GetDurningPredictionError,
     BadInput,
 }
@@ -37,6 +40,14 @@ impl Display for InputQueueError {
                 "Tried to request frame number of {}, which is behind the tail frame of {}",
                 given, tail_frame
             ),
+            InputQueueError::BadFrameRequest(given, first_incorrect_frame) => write!(
+                fmt,
+                "Tried to request frame number of {}, which is behind the first_incorrect_frame of {}",
+                given, first_incorrect_frame
+            ),
+            InputQueueError::FrameNotFound(given) => {
+                write!(fmt, "Tried to request frame number of {}, which was not found", given)
+            }
             InputQueueError::GetDurningPredictionError => {
                 write!(fmt, "Attempted to get input when there is a prediction error.")
             }
@@ -243,11 +254,35 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
         Ok(Some(frame))
     }
 
-    pub fn get_confirmed_input(self) {
-        unimplemented!()
+    pub fn get_confirmed_input(self, requested_frame: FrameSize) -> Result<GameInput<T>, InputQueueError> {
+        if let Some(first_incorrect_frame) = self.first_incorrect_frame {
+            if requested_frame > first_incorrect_frame {
+                return Err(InputQueueError::BadFrameRequest(requested_frame, first_incorrect_frame));
+            }
+        }
+        // TODO: find based on tail?
+        let input = self.queue.iter().find(|input| match input.frame {
+            Some(frame_num) => frame_num == requested_frame,
+            None => false,
+        });
+        match input {
+            Some(game_input) => Ok(game_input.clone()),
+            None => Err(InputQueueError::FrameNotFound(requested_frame)),
+        }
     }
 
     pub fn discard_confirmed_frames(&mut self, frame: FrameSize) {
-        unimplemented!()
+        let frame = match self.last_frame_requested {
+            Some(last_frame) => min(last_frame, frame),
+            None => frame,
+        };
+        self.queue.retain(|input| match input.frame {
+            Some(input_frame) => input_frame >= frame, // TODO: should be just greater or is >= fine?
+            None => false,
+        });
+    }
+
+    pub fn set_frame_delay(&mut self, delay: FrameSize) {
+        self.frame_delay = delay;
     }
 }
