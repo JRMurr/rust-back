@@ -6,7 +6,7 @@ use std::{
     error::Error,
     fmt::{self, Debug, Display, Formatter},
 };
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 // These are the different assert errors GGPO would throw
 // TODO: so panic when these happen?
 pub enum InputQueueError {
@@ -192,13 +192,14 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
         frame_num: FrameSize,
     ) -> Result<GameInput<T>, InputQueueError> {
         // do i need this assert? https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L221
-        let last_added_frame = match self.queue.front() {
-            Some(q_input) => q_input.frame.expect("All queue inputs should be set"),
-            None => 0, // TODO: might cause issues in sequential check
+
+        let input_frame = match self.queue.front() {
+            Some(q_input) => {
+                let last_added_frame = q_input.frame.expect("All queue inputs should be set");
+                Self::check_sequential(Some(last_added_frame), Some(frame_num), false)?
+            }
+            None => 0,
         };
-        // TODO: if this causes issues with the first frame added either don't call it
-        // if the q is empty the queue is empty or don't use the same helper
-        let input_frame = Self::check_sequential(Some(last_added_frame), Some(frame_num), false)?;
         let mut input = input;
         input.frame = Some(input_frame);
         self.queue.push_front(input.clone());
@@ -231,14 +232,13 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
 
     fn advance_queue_head(&mut self, frame: FrameSize) -> Result<FrameIndex, InputQueueError> {
         // expected frame is the 2nd input in the queue
-        let expected_frame = match self.queue.get(1) {
-            Some(input) => input.frame.expect("All inputs in queue should have a frame number set"),
+        let expected_frame = match self.queue.front() {
+            Some(input) => input.frame.expect("All inputs in queue should have a frame number set") + 1,
             // ggpo sets expected to 0 if `_first_frame` is true so
             // i think if theres no 2nd elm in the queue it would do the same thing?
             None => 0,
         };
         let frame = frame + self.frame_delay;
-
         if expected_frame > frame {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L278
             // delay has dropped so don't add anything to queue
@@ -247,7 +247,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
 
         for frame_num in expected_frame..frame {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L288
-            let last_input = self.queue.get(1).expect("queue should have at least 2 elements");
+            let last_input = self.queue.front().expect("queue should be non empty");
             let last_input = last_input.clone();
             self.add_delayed_input(last_input, frame_num)?;
         }
@@ -284,5 +284,62 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
 
     pub fn set_frame_delay(&mut self, delay: FrameSize) {
         self.frame_delay = delay;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add() {
+        let mut q: InputQueue<&str> = InputQueue::new();
+        let input = GameInput {
+            frame: Some(0),
+            input: Some("hi"),
+        };
+        let added = q.add_input(input).unwrap();
+        assert_eq!(
+            added,
+            GameInput {
+                frame: Some(0),
+                input: Some("hi")
+            }
+        );
+
+        // Try to add same frame number
+        let input = GameInput {
+            frame: Some(0),
+            input: Some("hello"),
+        };
+        let added = q.add_input(input);
+        assert!(added.is_err());
+        let err = added.err().unwrap();
+        assert_eq!(err, InputQueueError::NonSequentialUserInput(0, 1));
+
+        // try bad frame number
+        let input = GameInput {
+            frame: Some(10),
+            input: Some("hello"),
+        };
+
+        let added = q.add_input(input);
+        assert!(added.is_err());
+        let err = added.err().unwrap();
+        assert_eq!(err, InputQueueError::NonSequentialUserInput(10, 1));
+
+        // correct frame number
+        let input = GameInput {
+            frame: Some(1),
+            input: Some("its real"),
+        };
+        let added = q.add_input(input).unwrap();
+        assert_eq!(
+            added,
+            GameInput {
+                frame: Some(1),
+                input: Some("its real")
+            }
+        );
     }
 }
