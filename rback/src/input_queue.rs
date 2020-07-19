@@ -16,7 +16,7 @@ pub enum InputQueueError {
     BadFrameIndex(FrameSize, FrameSize),
     BadFrameRequest(FrameSize, FrameSize),
     FrameNotFound(FrameSize),
-    GetDurningPredictionError,
+    GetDurningPrediction,
     BadInput,
 }
 
@@ -48,7 +48,7 @@ impl Display for InputQueueError {
             InputQueueError::FrameNotFound(given) => {
                 write!(fmt, "Tried to request frame number of {}, which was not found", given)
             }
-            InputQueueError::GetDurningPredictionError => {
+            InputQueueError::GetDurningPrediction => {
                 write!(fmt, "Attempted to get input when there is a prediction error.")
             }
             InputQueueError::BadInput => write!(fmt, "Given input with None for frame number"),
@@ -121,7 +121,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
     pub fn get_input(&mut self, requested_frame: FrameSize) -> Result<GameInput<T>, InputQueueError> {
         if self.first_incorrect_frame.is_some() {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L122
-            return Err(InputQueueError::GetDurningPredictionError);
+            return Err(InputQueueError::GetDurningPrediction);
         }
         let tail = self
             .queue
@@ -203,6 +203,7 @@ impl<T: Clone + Debug + PartialEq> InputQueue<T> {
         let mut input = input;
         input.frame = Some(input_frame);
         self.queue.push_front(input.clone());
+        self.last_added_frame = input.frame;
 
         if let Some(prediction_frame) = self.prediction.frame {
             debug_assert_eq!(
@@ -341,5 +342,51 @@ mod tests {
                 input: Some("its real")
             }
         );
+    }
+
+    #[test]
+    fn test_get_input() -> Result<(), InputQueueError> {
+        let mut q: InputQueue<&str> = InputQueue::new();
+
+        let input = GameInput {
+            frame: Some(0),
+            input: Some("hi"),
+        };
+        q.add_input(input)?;
+        let input = GameInput {
+            frame: Some(1),
+            input: Some("hello"),
+        };
+        q.add_input(input)?;
+
+        // get good frames
+        assert_eq!(
+            q.get_input(0)?,
+            GameInput {
+                frame: Some(0),
+                input: Some("hi"),
+            }
+        );
+        assert_eq!(
+            q.get_input(1)?,
+            GameInput {
+                frame: Some(0),
+                input: Some("hello"),
+            }
+        );
+
+        // TODO: add test when requested_frame < tail_frame
+        // TODO: test empty predictions, i think the queue has to be empty for these and
+        // we error
+
+        // get bad frame so should try to predict based on last added frame
+        assert_eq!(
+            q.get_input(3)?,
+            GameInput {
+                frame: Some(3),
+                input: Some("hello"),
+            }
+        );
+        Ok(())
     }
 }

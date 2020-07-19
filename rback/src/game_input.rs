@@ -1,7 +1,8 @@
 use crate::FrameSize;
 use std::fmt::Debug;
 #[derive(Debug, Clone)]
-// T is the type of the input to store
+// TODO: maybe make frame not an option since i think only the prediction input
+// would have it be none
 pub struct GameInput<T: Clone + Debug + PartialEq> {
     pub frame: Option<FrameSize>,
     pub input: Option<T>,
