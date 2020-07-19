@@ -38,20 +38,20 @@ pub struct GameInput<T: Clone> {
 
 #[derive(Debug)]
 /// Queue of inputs for a single player in the game
-pub struct InputQueue<'input, T: Clone> {
-    queue: VecDeque<&'input GameInput<T>>,
+pub struct InputQueue<T: Clone> {
+    queue: VecDeque<GameInput<T>>,
     /// Frame number of the last user added input
     last_user_added_frame: Option<FrameSize>,
     frame_delay: FrameSize,
 }
 
-impl<'input, T: Clone> Default for InputQueue<'input, T> {
+impl<T: Clone> Default for InputQueue<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'input, T: Clone> InputQueue<'input, T> {
+impl<T: Clone> InputQueue<T> {
     pub fn new() -> Self {
         // TODO: maybe use with capacity or reserve size of queue to prevent extra
         // allocs
@@ -88,25 +88,24 @@ impl<'input, T: Clone> InputQueue<'input, T> {
         Ok(input_frame)
     }
 
-    pub fn add_input(&mut self, input: &'input mut GameInput<T>) -> Result<(), InputQueueError> {
+    pub fn add_input(&mut self, input: GameInput<T>) -> Result<GameInput<T>, InputQueueError> {
         let input_frame = Self::check_sequential(self.last_user_added_frame, input.frame, true)?;
         self.last_user_added_frame = Some(input_frame);
         let new_frame = self.advance_queue_head(input_frame)?;
         if let Some(new_frame) = new_frame {
-            self.add_delayed_input(input, new_frame)?;
+            return self.add_delayed_input(input, new_frame);
         }
 
-        // TODO: Maybe return the input instead of mutating it?
-        // also do the same modification in add_delayed_input so is it needed?
+        let mut input = input;
         input.frame = new_frame;
-        Ok(())
+        Ok(input)
     }
 
     fn add_delayed_input(
         &mut self,
-        input: &'input mut GameInput<T>,
+        input: GameInput<T>,
         frame_num: FrameSize,
-    ) -> Result<Option<FrameSize>, InputQueueError> {
+    ) -> Result<GameInput<T>, InputQueueError> {
         // do i need this assert? https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L221
         let last_added_frame = match self.queue.front() {
             Some(q_input) => q_input.frame.expect("All queue inputs should be set"),
@@ -115,9 +114,11 @@ impl<'input, T: Clone> InputQueue<'input, T> {
         // TODO: if this causes issues with the first frame added either don't call it
         // if the q is empty the queue is empty or don't use the same helper
         let input_frame = Self::check_sequential(Some(last_added_frame), Some(frame_num), false)?;
+        let mut input = input;
         input.frame = Some(input_frame);
-        self.queue.push_front(input);
-        panic!("ass");
+        self.queue.push_front(input.clone());
+        // TODO: prediction checks
+        Ok(input)
     }
 
     fn advance_queue_head(&mut self, frame: FrameSize) -> Result<Option<FrameSize>, InputQueueError> {
@@ -138,9 +139,9 @@ impl<'input, T: Clone> InputQueue<'input, T> {
 
         for frame_num in expected_frame..frame {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L288
-            let last_input = *(self.queue.get(1).expect("queue should have at least 2 elements"));
-            let mut last_input = (*last_input).clone();
-            self.add_delayed_input(&mut last_input, frame_num)?;
+            let last_input = self.queue.get(1).expect("queue should have at least 2 elements");
+            let last_input = last_input.clone();
+            self.add_delayed_input(last_input, frame_num)?;
         }
         Ok(Some(frame))
     }
