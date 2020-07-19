@@ -1,4 +1,4 @@
-use crate::{game_input_frame::GameInputFrame, FrameSize, GameInput};
+use crate::{game_input_frame::GameInputFrame, FrameIndex, FrameSize, GameInput};
 use log::info;
 use std::{
     cmp::min,
@@ -55,8 +55,6 @@ impl Display for InputQueueError {
         }
     }
 }
-
-type FrameIndex = Option<FrameSize>;
 
 #[derive(Debug)]
 /// Queue of inputs for a single player in the game
