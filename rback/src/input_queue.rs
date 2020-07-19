@@ -1,15 +1,23 @@
-use crate::FrameSize;
+use crate::{game_input::GameInput, FrameSize};
+use log::info;
 use std::{
     collections::VecDeque,
-    fmt::{self, Display, Formatter},
+    error::Error,
+    fmt::{self, Debug, Display, Formatter},
 };
 #[derive(Debug)]
+// These are the different assert errors GGPO would throw
+// TODO: so panic when these happen?
 pub enum InputQueueError {
     NonSequentialUserInput(FrameSize, FrameSize),
     // if this is thrown the library messed up somehow
     NonSequentialRollbackInput(FrameSize, FrameSize),
+    BadFrameIndex(FrameSize, FrameSize),
+    GetDurningPredictionError,
     BadInput,
 }
+
+impl Error for InputQueueError {}
 
 impl Display for InputQueueError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
@@ -24,47 +32,58 @@ impl Display for InputQueueError {
                 "Given frame number of {}, expected frame number {}",
                 given, expected
             ),
+            InputQueueError::BadFrameIndex(given, tail_frame) => write!(
+                fmt,
+                "Tried to request frame number of {}, which is behind the tail frame of {}",
+                given, tail_frame
+            ),
+            InputQueueError::GetDurningPredictionError => {
+                write!(fmt, "Attempted to get input when there is a prediction error.")
+            }
             InputQueueError::BadInput => write!(fmt, "Given input with None for frame number"),
         }
     }
 }
 
-#[derive(Debug, Clone)]
-// T is the type of the input to store
-pub struct GameInput<T: Clone> {
-    frame: Option<FrameSize>,
-    input: T,
-}
+type FrameIndex = Option<FrameSize>;
 
 #[derive(Debug)]
 /// Queue of inputs for a single player in the game
-pub struct InputQueue<T: Clone> {
-    queue: VecDeque<GameInput<T>>,
+pub struct InputQueue<T: Clone + Debug + PartialEq> {
+    queue: VecDeque<GameInput<T>>, // TODO: maybe make this a box type to reduce/remove clones
     /// Frame number of the last user added input
-    last_user_added_frame: Option<FrameSize>,
+    last_user_added_frame: FrameIndex,
+    last_added_frame: FrameIndex,
     frame_delay: FrameSize,
+    prediction: GameInput<T>,
+    first_incorrect_frame: FrameIndex,
+    last_frame_requested: FrameIndex,
 }
 
-impl<T: Clone> Default for InputQueue<T> {
+impl<T: Clone + Debug + PartialEq> Default for InputQueue<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Clone> InputQueue<T> {
+impl<T: Clone + Debug + PartialEq> InputQueue<T> {
     pub fn new() -> Self {
         // TODO: maybe use with capacity or reserve size of queue to prevent extra
-        // allocs
+        // allocations
         Self {
             queue: VecDeque::new(),
             last_user_added_frame: None,
+            last_added_frame: None,
             frame_delay: 0,
+            prediction: GameInput::empty_input(),
+            first_incorrect_frame: None,
+            last_frame_requested: None,
         }
     }
 
     fn check_sequential(
-        last_frame: Option<FrameSize>,
-        input_frame: Option<FrameSize>,
+        last_frame: FrameIndex,
+        input_frame: FrameIndex,
         user_input: bool,
     ) -> Result<FrameSize, InputQueueError> {
         let input_frame = input_frame.ok_or(InputQueueError::BadInput)?;
@@ -86,6 +105,61 @@ impl<T: Clone> InputQueue<T> {
             }
         }
         Ok(input_frame)
+    }
+
+    pub fn get_input(&mut self, requested_frame: FrameSize) -> Result<GameInput<T>, InputQueueError> {
+        if self.first_incorrect_frame.is_some() {
+            // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L122
+            return Err(InputQueueError::GetDurningPredictionError);
+        }
+        let tail = self
+            .queue
+            .back()
+            .expect("Queue should be non empty when getting inputs");
+        let tail_frame = tail.frame.expect("Queue inputs should have a frame set");
+        if requested_frame < tail_frame {
+            return Err(InputQueueError::BadFrameIndex(requested_frame, tail_frame));
+        }
+
+        self.last_frame_requested = Some(requested_frame);
+        if self.prediction.frame.is_none() {
+            let idx_from_back = (requested_frame - tail_frame) as usize;
+            if idx_from_back < self.queue.len() {
+                // Valid frame no need to predict
+                let q_idx = (self.queue.len() - 1) - idx_from_back;
+                let desired_input = self.queue.get(q_idx).expect("Requested frame should be in the queue");
+                debug_assert_eq!(
+                    desired_input.frame,
+                    Some(requested_frame),
+                    "requested frame does not match with input in q. Got {:#?}, expected {}",
+                    desired_input.frame,
+                    requested_frame
+                );
+                return Ok(desired_input.clone());
+            }
+
+            // We need to do some predictions since they want a frame we don't
+            // have
+            if requested_frame == 0 {
+                info!("basing new prediction frame from nothing, you're client wants frame 0.");
+                self.prediction.erase_input();
+            } else if self.last_added_frame.is_none() {
+                info!("basing new prediction frame from nothing, since we have no frames yet.");
+                self.prediction.erase_input();
+            } else {
+                let previous = self.queue.front().expect("Queue should be non empty in get input");
+                info!(
+                    "basing new prediction frame from previously added frame (queue entry: {:?}).",
+                    previous
+                );
+                self.prediction = previous.clone();
+            }
+            self.prediction.frame = self.prediction.frame.map(|f| f + 1);
+        }
+        // TODO: assert prediction frame is >= 0?
+        let mut input = self.prediction.clone();
+        input.frame = Some(requested_frame);
+        Ok(input)
     }
 
     pub fn add_input(&mut self, input: GameInput<T>) -> Result<GameInput<T>, InputQueueError> {
@@ -117,11 +191,34 @@ impl<T: Clone> InputQueue<T> {
         let mut input = input;
         input.frame = Some(input_frame);
         self.queue.push_front(input.clone());
-        // TODO: prediction checks
+
+        if let Some(prediction_frame) = self.prediction.frame {
+            debug_assert_eq!(
+                frame_num, prediction_frame,
+                "need added input to be the prediction frame, got {}, expected {}",
+                frame_num, prediction_frame
+            );
+
+            // We have been doing predictions so check if what we have
+            // prediction matched the inputs we got
+            if self.first_incorrect_frame.is_none() && self.prediction != input {
+                info!("frame {} does not match prediction.  marking error.", frame_num);
+                self.first_incorrect_frame = Some(frame_num);
+            }
+
+            if self.prediction.frame == self.last_frame_requested && self.first_incorrect_frame.is_none() {
+                info!("prediction is correct!  dumping out of prediction mode.");
+                self.prediction.frame = None;
+            } else {
+                // should be some here but this is cleaner than unwrapping
+                self.prediction.frame = self.prediction.frame.map(|f| f + 1);
+            }
+        }
+
         Ok(input)
     }
 
-    fn advance_queue_head(&mut self, frame: FrameSize) -> Result<Option<FrameSize>, InputQueueError> {
+    fn advance_queue_head(&mut self, frame: FrameSize) -> Result<FrameIndex, InputQueueError> {
         // expected frame is the 2nd input in the queue
         let expected_frame = match self.queue.get(1) {
             Some(input) => input.frame.expect("All inputs in queue should have a frame number set"),
@@ -133,7 +230,7 @@ impl<T: Clone> InputQueue<T> {
 
         if expected_frame > frame {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L278
-            // delay has dropped so dont add anything to queue
+            // delay has dropped so don't add anything to queue
             return Ok(None);
         }
 
@@ -144,5 +241,13 @@ impl<T: Clone> InputQueue<T> {
             self.add_delayed_input(last_input, frame_num)?;
         }
         Ok(Some(frame))
+    }
+
+    pub fn get_confirmed_input(self) {
+        unimplemented!()
+    }
+
+    pub fn discard_confirmed_frames(&mut self, frame: FrameSize) {
+        unimplemented!()
     }
 }

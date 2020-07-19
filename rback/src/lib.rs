@@ -1,3 +1,5 @@
+// #![warn(missing_docs)]
+pub mod game_input;
 pub mod input_queue;
 pub mod network;
 pub mod sync;
