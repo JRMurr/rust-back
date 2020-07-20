@@ -25,6 +25,10 @@ pub enum InputQueueError {
         given: FrameSize,
         first_incorrect_frame: FrameSize,
     },
+    BadResetPrediction {
+        given: FrameSize,
+        first_incorrect_frame: FrameSize,
+    },
     FrameNotFound(FrameSize),
     GetDurningPrediction,
     BadInput,
@@ -53,6 +57,11 @@ impl Display for InputQueueError {
                 "Tried to request frame number of {}, which is behind the first_incorrect_frame of {}",
                 given, first_incorrect_frame
             ),
+            InputQueueError::BadResetPrediction{given, first_incorrect_frame} => write!(
+                fmt,
+                "Tried to reset prediction to frame {}, which is ahead of the first_incorrect_frame of {}",
+                given, first_incorrect_frame
+            ),
             InputQueueError::FrameNotFound(given) => {
                 write!(fmt, "Tried to request frame number of {}, which was not found", given)
             }
@@ -70,6 +79,15 @@ impl Error for InputQueueError {}
 pub enum SyncError {
     QueueError(InputQueueError),
     BadQueueHandle(u8),
+    PredictionBarrierReached {
+        frames_behind: FrameSize,
+        max_prediction_frames: FrameSize,
+    },
+    SimulationError {
+        given: FrameSize,
+        expected: FrameSize,
+    },
+    StateNotFound(FrameSize),
 }
 
 impl Display for SyncError {
@@ -81,9 +99,26 @@ impl Display for SyncError {
             SyncError::BadQueueHandle(q) => {
                 write!(fmt, "Tried to write to q {}, which does not exist", q)
             }
+            SyncError::PredictionBarrierReached {
+                frames_behind,
+                max_prediction_frames,
+            } => write!(
+                fmt,
+                "Rejecting input prediction barrier: currently {} frames behind with max_prediction_frames: {} ",
+                frames_behind, max_prediction_frames
+            ),
+            SyncError::SimulationError{given, expected} => write!(
+                fmt,
+                "After rolling back frame count is at {}, when it should be at {}",
+                given, expected
+            ),
+            SyncError::StateNotFound(frame) =>
+                write!(fmt, "frame {} not found in saved states", frame)
         }
     }
 }
+
+impl Error for SyncError {}
 
 impl From<InputQueueError> for SyncError {
     fn from(inner: InputQueueError) -> Self {

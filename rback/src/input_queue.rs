@@ -4,9 +4,13 @@ use crate::{
 use log::info;
 use std::{cmp::min, collections::VecDeque};
 
+// TODO: simplify errors to only be the errors that could be thrown in that func
+
 #[derive(Debug)]
 /// Queue of inputs for a single player in the game
 pub struct InputQueue<T: GameInput> {
+    // TODO: fixed-vec-deque crate?
+    // TODO: seems to be used like a stack so maybe just normal vec?
     queue: VecDeque<GameInputFrame<T>>, /* TODO: maybe make this a box type
                                          * to reduce/remove clones */
     frame_delay: FrameSize,
@@ -264,6 +268,21 @@ impl<T: GameInput> InputQueue<T> {
             // fine?
             None => false,
         });
+    }
+
+    pub fn reset_prediction(&mut self, frame: FrameSize) -> Result<(), InputQueueError> {
+        if let Some(first_incorrect_frame) = self.first_incorrect_frame {
+            if frame > first_incorrect_frame {
+                return Err(InputQueueError::BadResetPrediction {
+                    given: frame,
+                    first_incorrect_frame,
+                });
+            }
+        }
+        self.prediction.frame = None;
+        self.first_incorrect_frame = None;
+        self.last_frame_requested = None;
+        Ok(())
     }
 
     pub fn set_frame_delay(&mut self, delay: FrameSize) {
