@@ -1,7 +1,7 @@
-use crate::{game_input_frame::GameInputFrame, input_queue::InputQueue, FrameIndex, FrameSize, GameInput};
-
-pub enum SyncError {}
-// TODO: make errors file, add auto convert from inputq error to sync error
+use crate::{
+    error::SyncError, game_input_frame::GameInputFrame, input_queue::InputQueue, FrameIndex,
+    FrameSize, GameInput,
+};
 
 //TODO: make it generic where the passed type is the game state
 pub trait SyncCallBacks {
@@ -51,10 +51,18 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
             frame: Some(self.frame_count),
             input: Some(input),
         };
-        if queue == 0 {
-            return self.input_queues.0.add_input(input)?;
-        } else {
-            return self.input_queues.1.add_input(input)?;
+        match queue {
+            0 => self
+                .input_queues
+                .0
+                .add_input(input)
+                .map_err(SyncError::from),
+            1 => self
+                .input_queues
+                .1
+                .add_input(input)
+                .map_err(SyncError::from),
+            _ => Err(SyncError::BadQueueHandle(queue)),
         }
     }
 }

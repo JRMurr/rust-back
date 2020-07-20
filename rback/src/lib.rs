@@ -2,6 +2,7 @@
 
 use std::fmt::Debug;
 
+pub mod error;
 pub(crate) mod game_input_frame;
 pub mod input_queue;
 pub mod network;
