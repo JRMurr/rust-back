@@ -1,6 +1,6 @@
 // #![warn(missing_docs)]
 
-use std::fmt::Debug;
+use std::{cell::RefCell, fmt::Debug, rc::Rc};
 
 pub mod error;
 pub(crate) mod game_input_frame;
@@ -18,8 +18,10 @@ impl<T> GameInput for T where T: Clone + Debug + PartialEq {}
 
 pub trait SyncCallBacks {
     type SavedState;
-    fn save_game_state(&self) -> Self::SavedState;
-    fn load_game_state(&self, saved_state: Self::SavedState);
+    fn save_game_state(&mut self) -> Self::SavedState;
+    fn load_game_state(&mut self, saved_state: Self::SavedState);
     fn advance_frame(&mut self);
     fn on_event();
 }
+
+type RcRef<T> = Rc<RefCell<T>>;

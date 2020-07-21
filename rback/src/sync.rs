@@ -1,6 +1,6 @@
 use crate::{
     error::SyncError, game_input_frame::GameInputFrame, input_queue::InputQueue, FrameIndex,
-    FrameSize, GameInput, SyncCallBacks,
+    FrameSize, GameInput, RcRef, SyncCallBacks,
 };
 use std::collections::VecDeque;
 // TODO: simplify errors to only be the errors that could be thrown in that func
@@ -29,11 +29,11 @@ pub struct Sync<T: GameInput, C: SyncCallBacks> {
     // TODO: maybe make this slice of fixed size or just a vec?
     input_queues: (InputQueue<T>, InputQueue<T>),
     saved_states: VecDeque<SavedGameState<<C as SyncCallBacks>::SavedState>>,
-    callbacks: C,
+    callbacks: RcRef<C>,
 }
 
 impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
-    pub fn new(max_prediction_frames: FrameSize, callbacks: C) -> Self {
+    pub fn new(max_prediction_frames: FrameSize, callbacks: RcRef<C>) -> Self {
         Self {
             max_prediction_frames,
             frame_count: 0,
@@ -54,7 +54,7 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
     }
 
     fn save_current_frame(&mut self) {
-        let saved_state = self.callbacks.save_game_state();
+        let saved_state = self.callbacks.borrow_mut().save_game_state();
         self.saved_states
             .push_back((saved_state, self.frame_count).into());
     }
@@ -65,7 +65,7 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
 
         match self.saved_states.pop_front() {
             Some(state) if state.frame == frame => {
-                self.callbacks.load_game_state(state.state);
+                self.callbacks.borrow_mut().load_game_state(state.state);
                 Ok(())
             }
             // TODO: could error if i suck at the queue
@@ -125,6 +125,9 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
         }
 
         // TODO: ggpo has this but not sure why yet
+        // TODO: could this be called twice if 2 queues add input before
+        // incrementating? It should really happen but maybe check if q = 0 so it only
+        // does it for local?
         if self.frame_count == 0 {
             self.save_current_frame()
         }
@@ -184,7 +187,7 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
 
         self.reset_prediction(self.frame_count)?;
         for _ in 0..count {
-            self.callbacks.advance_frame();
+            self.callbacks.borrow_mut().advance_frame();
         }
 
         self.rolling_back = false;
@@ -228,17 +231,24 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{cell::RefCell, rc::Rc};
 
     struct SavedState {}
 
-    struct TestCallBacks {}
+    struct TestCallBacks {
+        pub num_saves: usize,
+        pub num_loads: usize,
+    }
 
     impl SyncCallBacks for TestCallBacks {
         type SavedState = SavedState;
-        fn save_game_state(&self) -> Self::SavedState {
+        fn save_game_state(&mut self) -> Self::SavedState {
+            self.num_saves += 1;
             SavedState {}
         }
-        fn load_game_state(&self, _saved_state: Self::SavedState) {}
+        fn load_game_state(&mut self, _saved_state: Self::SavedState) {
+            self.num_loads += 1;
+        }
         fn advance_frame(&mut self) {}
         fn on_event() {
             todo!()
@@ -246,5 +256,53 @@ mod tests {
     }
 
     #[test]
-    fn test_add() {}
+    fn test_add() {
+        let callbacks = TestCallBacks {
+            num_loads: 0,
+            num_saves: 0,
+        };
+        let callbacks = Rc::new(RefCell::new(callbacks));
+        let mut sync: Sync<&str, TestCallBacks> = Sync::new(4, callbacks);
+        // first frame adds
+        let added = sync.add_input(0, "hi_0").unwrap();
+        assert_eq!(
+            added,
+            GameInputFrame {
+                frame: Some(0),
+                input: Some("hi_0"),
+            }
+        );
+        let added = sync.add_input(1, "hi_1").unwrap();
+        assert_eq!(
+            added,
+            GameInputFrame {
+                frame: Some(0),
+                input: Some("hi_1"),
+            }
+        );
+
+        let err = sync.add_input(10, "bad queue").err().unwrap();
+        assert_eq!(err, SyncError::BadQueueHandle(10));
+    }
+
+    #[test]
+    fn test_add_local_input() {
+        let callbacks = TestCallBacks {
+            num_loads: 0,
+            num_saves: 0,
+        };
+        let callbacks = Rc::new(RefCell::new(callbacks));
+        let mut sync: Sync<&str, TestCallBacks> = Sync::new(4, callbacks.clone());
+
+        let added = sync.add_local_input(0, "hi_0").unwrap();
+        assert_eq!(
+            added,
+            GameInputFrame {
+                frame: Some(0),
+                input: Some("hi_0"),
+            }
+        );
+        // since frame_count is 0 we should have called save current_frame
+        assert_eq!(callbacks.borrow().num_saves, 1);
+    }
 }
