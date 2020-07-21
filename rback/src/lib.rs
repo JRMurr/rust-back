@@ -16,13 +16,10 @@ pub(crate) type FrameIndex = Option<FrameSize>;
 pub trait GameInput: Clone + Debug + PartialEq {}
 impl<T> GameInput for T where T: Clone + Debug + PartialEq {}
 
-pub trait SavedGameState {
-    fn get_frame(&self) -> FrameSize;
-}
-
-pub trait SyncCallBacks<T: SavedGameState> {
-    fn save_game_state(&self, frame: FrameSize) -> T;
-    fn load_game_state(&self, saved_state: T);
+pub trait SyncCallBacks {
+    type SavedState;
+    fn save_game_state(&self) -> Self::SavedState;
+    fn load_game_state(&self, saved_state: Self::SavedState);
     fn advance_frame(&mut self);
     fn on_event();
 }

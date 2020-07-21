@@ -1,12 +1,26 @@
 use crate::{
     error::SyncError, game_input_frame::GameInputFrame, input_queue::InputQueue, FrameIndex,
-    FrameSize, GameInput, SavedGameState, SyncCallBacks,
+    FrameSize, GameInput, SyncCallBacks,
 };
 use std::collections::VecDeque;
 // TODO: simplify errors to only be the errors that could be thrown in that func
 
+struct SavedGameState<T> {
+    state: T,
+    frame: FrameSize,
+}
+
+impl<T> From<(T, FrameSize)> for SavedGameState<T> {
+    fn from(inner: (T, FrameSize)) -> Self {
+        Self {
+            state: inner.0,
+            frame: inner.1,
+        }
+    }
+}
+
 const NUM_PLAYERS: u8 = 2;
-pub struct Sync<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> {
+pub struct Sync<T: GameInput, C: SyncCallBacks> {
     max_prediction_frames: FrameSize,
     pub(crate) frame_count: FrameSize,
     last_confirmed_frame: FrameIndex,
@@ -14,11 +28,11 @@ pub struct Sync<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> {
     // first is local, second is remote
     // TODO: maybe make this slice of fixed size or just a vec?
     input_queues: (InputQueue<T>, InputQueue<T>),
-    saved_states: VecDeque<S>,
+    saved_states: VecDeque<SavedGameState<<C as SyncCallBacks>::SavedState>>,
     callbacks: C,
 }
 
-impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
+impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
     pub fn new(max_prediction_frames: FrameSize, callbacks: C) -> Self {
         Self {
             max_prediction_frames,
@@ -40,17 +54,18 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
     }
 
     fn save_current_frame(&mut self) {
-        let saved_state = self.callbacks.save_game_state(self.frame_count);
-        self.saved_states.push_back(saved_state);
+        let saved_state = self.callbacks.save_game_state();
+        self.saved_states
+            .push_back((saved_state, self.frame_count).into());
     }
 
     fn load_frame(&mut self, frame: FrameSize) -> Result<(), SyncError> {
         // remove older frames from saved states
-        self.saved_states.retain(|state| state.get_frame() >= frame);
+        self.saved_states.retain(|state| state.frame >= frame);
 
         match self.saved_states.pop_front() {
-            Some(state) if state.get_frame() == frame => {
-                self.callbacks.load_game_state(state);
+            Some(state) if state.frame == frame => {
+                self.callbacks.load_game_state(state.state);
                 Ok(())
             }
             // TODO: could error if i suck at the queue
@@ -208,4 +223,28 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
         }
         Ok(res)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct SavedState {}
+
+    struct TestCallBacks {}
+
+    impl SyncCallBacks for TestCallBacks {
+        type SavedState = SavedState;
+        fn save_game_state(&self) -> Self::SavedState {
+            SavedState {}
+        }
+        fn load_game_state(&self, _saved_state: Self::SavedState) {}
+        fn advance_frame(&mut self) {}
+        fn on_event() {
+            todo!()
+        }
+    }
+
+    #[test]
+    fn test_add() {}
 }
