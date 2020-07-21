@@ -5,14 +5,10 @@ use crate::{
 use std::collections::VecDeque;
 // TODO: simplify errors to only be the errors that could be thrown in that func
 
-// TODO: remove this?
-pub struct SyncConfig {
-    num_prediction_frames: FrameSize,
-}
 const NUM_PLAYERS: u8 = 2;
 pub struct Sync<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> {
     max_prediction_frames: FrameSize,
-    frame_count: FrameSize,
+    pub(crate) frame_count: FrameSize,
     last_confirmed_frame: FrameIndex,
     pub(crate) rolling_back: bool,
     // first is local, second is remote
@@ -23,9 +19,9 @@ pub struct Sync<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> {
 }
 
 impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
-    pub fn new(config: SyncConfig, callbacks: C) -> Self {
+    pub fn new(max_prediction_frames: FrameSize, callbacks: C) -> Self {
         Self {
-            max_prediction_frames: config.num_prediction_frames,
+            max_prediction_frames,
             frame_count: 0,
             last_confirmed_frame: None,
             rolling_back: false,
@@ -63,7 +59,7 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
     }
 
     #[inline(always)]
-    fn get_queue(&mut self, queue: u8) -> Result<&mut InputQueue<T>, SyncError> {
+    fn get_queue_mut(&mut self, queue: u8) -> Result<&mut InputQueue<T>, SyncError> {
         // TODO: right now we only hold 2 but ggpo does up to 4
         // not sure if we need more for spectators
         match queue {
@@ -73,12 +69,23 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
         }
     }
 
+    #[inline(always)]
+    fn get_queue(&self, queue: u8) -> Result<&InputQueue<T>, SyncError> {
+        // TODO: right now we only hold 2 but ggpo does up to 4
+        // not sure if we need more for spectators
+        match queue {
+            0 => Ok(&self.input_queues.0),
+            1 => Ok(&self.input_queues.1),
+            _ => Err(SyncError::BadQueueHandle(queue)),
+        }
+    }
+
     fn add_input(&mut self, queue: u8, input: T) -> Result<GameInputFrame<T>, SyncError> {
         let input = GameInputFrame {
             frame: Some(self.frame_count),
             input: Some(input),
         };
-        let queue = self.get_queue(queue)?;
+        let queue = self.get_queue_mut(queue)?;
         queue.add_input(input).map_err(SyncError::from)
     }
 
@@ -117,7 +124,7 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
     }
 
     pub fn set_frame_delay(&mut self, queue: u8, delay: FrameSize) -> Result<(), SyncError> {
-        self.get_queue(queue)?.set_frame_delay(delay);
+        self.get_queue_mut(queue)?.set_frame_delay(delay);
         Ok(())
     }
 
@@ -131,11 +138,7 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
         // TODO: cleanup seems really gross
         let mut first_incorrect_frame = None;
         for i in 0..NUM_PLAYERS {
-            let q = match i {
-                0 => &self.input_queues.0,
-                1 => &self.input_queues.1,
-                _ => panic!("SHOULD NOT BE HERE"),
-            };
+            let q = self.get_queue(i).expect("Should always be a valid queue");
             if let (Some(q_frame), Some(sim_frame)) =
                 (q.first_incorrect_frame, first_incorrect_frame)
             {
@@ -178,5 +181,31 @@ impl<T: GameInput, C: SyncCallBacks<S>, S: SavedGameState> Sync<T, C, S> {
         } else {
             Ok(())
         }
+    }
+
+    /// Called each frame by the game to get inputs for each player
+    pub fn synchronize_inputs(&mut self) -> Result<Vec<GameInputFrame<T>>, SyncError> {
+        let mut res = Vec::new();
+        let frame = self.frame_count;
+        for i in 0..NUM_PLAYERS {
+            let queue = self.get_queue_mut(i)?;
+            // TODO: check if player disconnected
+            res.push(queue.get_input(frame)?);
+        }
+        Ok(res)
+    }
+
+    // TODO: i think this is only called by spectators
+    pub fn get_confirmed_inputs(
+        &mut self,
+        frame: FrameSize,
+    ) -> Result<Vec<GameInputFrame<T>>, SyncError> {
+        let mut res = Vec::new();
+        for i in 0..NUM_PLAYERS {
+            let queue = self.get_queue(i)?;
+            // TODO: check if player disconnected
+            res.push(queue.get_confirmed_input(frame)?);
+        }
+        Ok(res)
     }
 }

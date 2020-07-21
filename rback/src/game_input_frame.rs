@@ -1,8 +1,9 @@
 use crate::{FrameSize, GameInput};
 use std::fmt::Debug;
 #[derive(Debug, Clone)]
-// TODO: maybe make frame not an option since i think only the prediction input
-// would have it be none
+// TODO: i think only prediction could have both of these be none
+// so might be better if i make a special type for prediction
+// so normal game input does not have to deal with unwraps
 pub struct GameInputFrame<T: GameInput> {
     pub frame: Option<FrameSize>,
     pub input: Option<T>,

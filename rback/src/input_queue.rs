@@ -70,6 +70,7 @@ impl<T: GameInput> InputQueue<T> {
         Ok(input_frame)
     }
 
+    /// Called each frame by the game to get an input for this player
     pub fn get_input(
         &mut self,
         requested_frame: FrameSize,
@@ -148,6 +149,7 @@ impl<T: GameInput> InputQueue<T> {
             return self.add_delayed_input(input, new_frame);
         }
 
+        // only get here if frame delay was lowered so it didn't needed to be added to q
         let mut input = input;
         input.frame = new_frame;
         Ok(input)
@@ -233,8 +235,9 @@ impl<T: GameInput> InputQueue<T> {
         Ok(Some(frame))
     }
 
+    // TODO: i think this is only used for spectators
     pub fn get_confirmed_input(
-        self,
+        &self,
         requested_frame: FrameSize,
     ) -> Result<GameInputFrame<T>, InputQueueError> {
         if let Some(first_incorrect_frame) = self.first_incorrect_frame {
