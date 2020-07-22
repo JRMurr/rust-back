@@ -54,7 +54,10 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
     }
 
     fn save_current_frame(&mut self) {
-        let saved_state = self.callbacks.borrow_mut().save_game_state();
+        let saved_state = self
+            .callbacks
+            .borrow_mut()
+            .save_game_state(self.frame_count);
         self.saved_states
             .push_back((saved_state, self.frame_count).into());
     }
@@ -65,7 +68,10 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
 
         match self.saved_states.pop_front() {
             Some(state) if state.frame == frame => {
-                self.callbacks.borrow_mut().load_game_state(state.state);
+                self.callbacks
+                    .borrow_mut()
+                    .load_game_state(state.state, frame);
+                self.frame_count = frame;
                 Ok(())
             }
             // TODO: could error if i suck at the queue
@@ -95,11 +101,11 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
         }
     }
 
-    fn add_input(&mut self, queue: u8, input: T) -> Result<GameInputFrame<T>, SyncError> {
-        let input = GameInputFrame {
-            frame: Some(self.frame_count),
-            input: Some(input),
-        };
+    fn add_input(
+        &mut self,
+        queue: u8,
+        input: GameInputFrame<T>,
+    ) -> Result<GameInputFrame<T>, SyncError> {
         let queue = self.get_queue_mut(queue)?;
         queue.add_input(input).map_err(SyncError::from)
     }
@@ -107,13 +113,17 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
     pub fn add_remote_input(
         &mut self,
         queue: u8,
-        input: T,
+        input: GameInputFrame<T>,
     ) -> Result<GameInputFrame<T>, SyncError> {
         // TODO: should it only be queue == 1?
         self.add_input(queue, input)
     }
 
-    pub fn add_local_input(&mut self, queue: u8, input: T) -> Result<GameInputFrame<T>, SyncError> {
+    pub fn add_local_input(
+        &mut self,
+        queue: u8,
+        input: GameInputFrame<T>,
+    ) -> Result<GameInputFrame<T>, SyncError> {
         if let Some(last_confirmed_frame) = self.last_confirmed_frame {
             let frames_behind = self.frame_count - last_confirmed_frame;
             if frames_behind >= self.max_prediction_frames {
@@ -157,12 +167,16 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
         let mut first_incorrect_frame = None;
         for i in 0..NUM_PLAYERS {
             let q = self.get_queue(i).expect("Should always be a valid queue");
-            if let (Some(q_frame), Some(sim_frame)) =
-                (q.first_incorrect_frame, first_incorrect_frame)
-            {
-                if q_frame < sim_frame {
+            match (q.first_incorrect_frame, first_incorrect_frame) {
+                (Some(q_frame), Some(sim_frame)) => {
+                    if q_frame < sim_frame {
+                        first_incorrect_frame = q.first_incorrect_frame;
+                    }
+                }
+                (Some(_), None) => {
                     first_incorrect_frame = q.first_incorrect_frame;
                 }
+                _ => {}
             }
         }
         first_incorrect_frame
@@ -170,6 +184,7 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
 
     pub fn check_simulation(&mut self) -> Result<(), SyncError> {
         let seek_to = self.check_simulation_consistency();
+        println!("seek_to: {:#?}", seek_to);
         match seek_to {
             Some(seek_to) => self.adjust_simulation(seek_to),
             None => Ok(()),
@@ -202,13 +217,16 @@ impl<T: GameInput, C: SyncCallBacks> Sync<T, C> {
     }
 
     /// Called each frame by the game to get inputs for each player
-    pub fn synchronize_inputs(&mut self) -> Result<Vec<GameInputFrame<T>>, SyncError> {
+    /// Returns Vec where each index corresponds to the input for that
+    /// queue/player
+    pub fn synchronize_inputs(&mut self) -> Result<Vec<Option<T>>, SyncError> {
         let mut res = Vec::new();
         let frame = self.frame_count;
+        println!("--------------------------------frame: {}", frame);
         for i in 0..NUM_PLAYERS {
             let queue = self.get_queue_mut(i)?;
             // TODO: check if player disconnected
-            res.push(queue.get_input(frame)?);
+            res.push(queue.get_input(frame)?.input);
         }
         Ok(res)
     }
@@ -233,21 +251,34 @@ mod tests {
     use super::*;
     use std::{cell::RefCell, rc::Rc};
 
-    struct SavedState {}
+    #[derive(Debug, PartialEq, Clone)]
+    struct SavedState {
+        frame: FrameSize,
+    }
 
     struct TestCallBacks {
-        pub num_saves: usize,
-        pub num_loads: usize,
+        pub saved_frames: Vec<SavedState>,
+        pub loaded_frames: Vec<SavedState>,
+    }
+
+    impl Default for TestCallBacks {
+        fn default() -> Self {
+            Self {
+                saved_frames: vec![],
+                loaded_frames: vec![],
+            }
+        }
     }
 
     impl SyncCallBacks for TestCallBacks {
         type SavedState = SavedState;
-        fn save_game_state(&mut self) -> Self::SavedState {
-            self.num_saves += 1;
-            SavedState {}
+        fn save_game_state(&mut self, frame: FrameSize) -> Self::SavedState {
+            let saved_frames = SavedState { frame };
+            self.saved_frames.push(saved_frames.clone());
+            saved_frames
         }
-        fn load_game_state(&mut self, _saved_state: Self::SavedState) {
-            self.num_loads += 1;
+        fn load_game_state(&mut self, saved_state: Self::SavedState, _frame: FrameSize) {
+            self.loaded_frames.push(saved_state)
         }
         fn advance_frame(&mut self) {}
         fn on_event() {
@@ -257,14 +288,11 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let callbacks = TestCallBacks {
-            num_loads: 0,
-            num_saves: 0,
-        };
+        let callbacks = TestCallBacks::default();
         let callbacks = Rc::new(RefCell::new(callbacks));
         let mut sync: Sync<&str, TestCallBacks> = Sync::new(4, callbacks);
         // first frame adds
-        let added = sync.add_input(0, "hi_0").unwrap();
+        let added = sync.add_input(0, ("hi_0", 0).into()).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
@@ -272,7 +300,7 @@ mod tests {
                 input: Some("hi_0"),
             }
         );
-        let added = sync.add_input(1, "hi_1").unwrap();
+        let added = sync.add_input(1, ("hi_1", 0).into()).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
@@ -281,20 +309,17 @@ mod tests {
             }
         );
 
-        let err = sync.add_input(10, "bad queue").err().unwrap();
+        let err = sync.add_input(10, ("bad queue", 0).into()).err().unwrap();
         assert_eq!(err, SyncError::BadQueueHandle(10));
     }
 
     #[test]
     fn test_add_local_input() {
-        let callbacks = TestCallBacks {
-            num_loads: 0,
-            num_saves: 0,
-        };
+        let callbacks = TestCallBacks::default();
         let callbacks = Rc::new(RefCell::new(callbacks));
         let mut sync: Sync<&str, TestCallBacks> = Sync::new(4, callbacks.clone());
 
-        let added = sync.add_local_input(0, "hi_0").unwrap();
+        let added = sync.add_local_input(0, ("hi_0", 0).into()).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
@@ -303,6 +328,71 @@ mod tests {
             }
         );
         // since frame_count is 0 we should have called save current_frame
-        assert_eq!(callbacks.borrow().num_saves, 1);
+        assert_eq!(
+            callbacks.borrow().saved_frames,
+            vec![SavedState { frame: 0 }]
+        );
+    }
+
+    #[test]
+    fn test_check_simulation() -> Result<(), SyncError> {
+        let callbacks = TestCallBacks::default();
+        let callbacks = Rc::new(RefCell::new(callbacks));
+        let mut sync: Sync<&str, TestCallBacks> = Sync::new(4, callbacks.clone());
+
+        // add local inputs but don't add remote to simulate a delay
+        sync.add_local_input(0, ("first", 0).into())?;
+
+        let res = sync.synchronize_inputs()?;
+        assert_eq!(
+            res,
+            vec![
+                Some("first"),
+                // second queue has nothing to predict from so it will return null input
+                None
+            ]
+        );
+        // simulate game state going forward without getting remote input
+        sync.increment_frame();
+
+        // simulate a few more frames, then get the inputs for the first
+        sync.add_local_input(0, ("second", 1).into())?;
+        let res = sync.synchronize_inputs()?;
+        assert_eq!(res, vec![Some("second"), None]);
+        sync.increment_frame();
+
+        // we got inputs 3 frames late
+        println!("?????????????????????????????????????");
+        sync.add_local_input(0, ("third", 2).into())?;
+        sync.add_remote_input(1, ("remote_1", 0).into())?;
+
+        assert_eq!(
+            sync.synchronize_inputs().err().unwrap(),
+            SyncError::QueueError(crate::error::InputQueueError::GetDurningPrediction)
+        );
+
+        // let res = sync.synchronize_inputs()?;
+        // assert_eq!(
+        //     res,
+        //     vec![
+        //         Some("third"),
+        //         // second queue can now predict from the input it just got
+        //         Some("remote_1")
+        //     ]
+        // );
+        // println!("POOP>>>>>>>>>>>>>>>>");
+        // sync.increment_frame();
+
+        // we don't check if the input was correct until the
+        sync.check_simulation()?;
+
+        // assert_eq!(
+        //     callbacks.borrow().loaded_frames,
+        //     vec![SavedState { frame: 0 }]
+        // );
+
+        // should have called adjust_simulation and loaded the right frame
+
+        Ok(())
     }
 }

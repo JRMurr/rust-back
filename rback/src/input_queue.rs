@@ -79,17 +79,20 @@ impl<T: GameInput> InputQueue<T> {
             // https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/input_queue.cpp#L122
             return Err(InputQueueError::GetDurningPrediction);
         }
-        let tail = self
-            .queue
-            .back()
-            .expect("Queue should be non empty when getting inputs");
-        let tail_frame = tail.frame.expect("Queue inputs should have a frame set");
-        if requested_frame < tail_frame {
-            return Err(InputQueueError::BadFrameIndex {
-                given: requested_frame,
-                tail_frame,
-            });
-        }
+        let tail_frame = match self.queue.back() {
+            Some(tail) => {
+                let tail_frame = tail.frame.expect("Queue inputs should have a frame set");
+                if requested_frame < tail_frame {
+                    return Err(InputQueueError::BadFrameIndex {
+                        given: requested_frame,
+                        tail_frame,
+                    });
+                }
+                tail_frame
+            }
+            // if there isn't anything in the queue we are gonna predict
+            None => 0,
+        };
 
         self.last_frame_requested = Some(requested_frame);
         if self.prediction.frame.is_none() {
@@ -123,18 +126,20 @@ impl<T: GameInput> InputQueue<T> {
                 let previous = self
                     .queue
                     .front()
-                    .expect("Queue should be non empty in get input");
+                    .expect("Queue should be non empty to guess prediction");
                 info!(
                     "basing new prediction frame from previously added frame (queue entry: {:?}).",
                     previous
                 );
                 self.prediction = previous.clone();
             }
-            self.prediction.frame = self.prediction.frame.map(|f| f + 1);
+            // TODO: ggpo has frame++ but i think thats because there None input is 0
+            self.prediction.frame = Some(requested_frame);
         }
         // TODO: assert prediction frame is >= 0?
         let mut input = self.prediction.clone();
         input.frame = Some(requested_frame);
+        println!("input: {:#?}", input);
         Ok(input)
     }
 
@@ -175,6 +180,13 @@ impl<T: GameInput> InputQueue<T> {
         self.last_added_frame = input.frame;
 
         if let Some(prediction_frame) = self.prediction.frame {
+            println!("---------------------------------");
+            println!(
+                "self.first_incorrect_frame: {:#?}",
+                self.first_incorrect_frame
+            );
+            println!("self.prediction: {:#?}", self.prediction);
+            println!("input: {:#?}", input);
             debug_assert_eq!(
                 frame_num, prediction_frame,
                 "need added input to be the prediction frame, got {}, expected {}",
@@ -183,7 +195,8 @@ impl<T: GameInput> InputQueue<T> {
 
             // We have been doing predictions so check if what we have
             // prediction matched the inputs we got
-            if self.first_incorrect_frame.is_none() && self.prediction != input {
+            if self.first_incorrect_frame.is_none() && self.prediction.input != input.input {
+                println!("--- HERE");
                 info!(
                     "frame {} does not match prediction.  marking error.",
                     frame_num
@@ -265,10 +278,10 @@ impl<T: GameInput> InputQueue<T> {
             None => frame,
         };
         self.queue.retain(|input| match input.frame {
-            Some(input_frame) => input_frame >= frame, /* TODO: should be
-                                                         * just greater or is
-                                                         * >= */
-            // fine?
+            // TODO: should be
+            // just greater or is
+            // >=  fine ?
+            Some(input_frame) => input_frame >= frame,
             None => false,
         });
     }
@@ -391,7 +404,7 @@ mod tests {
         assert_eq!(
             q.get_input(1)?,
             GameInputFrame {
-                frame: Some(0),
+                frame: Some(1),
                 input: Some("hello"),
             }
         );
@@ -406,6 +419,19 @@ mod tests {
             GameInputFrame {
                 frame: Some(3),
                 input: Some("hello"),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_empty() -> Result<(), InputQueueError> {
+        let mut q: InputQueue<&str> = InputQueue::new();
+        assert_eq!(
+            q.get_input(3)?,
+            GameInputFrame {
+                frame: Some(3),
+                input: None,
             }
         );
         Ok(())

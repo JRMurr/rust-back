@@ -18,8 +18,10 @@ impl<T> GameInput for T where T: Clone + Debug + PartialEq {}
 
 pub trait SyncCallBacks {
     type SavedState;
-    fn save_game_state(&mut self) -> Self::SavedState;
-    fn load_game_state(&mut self, saved_state: Self::SavedState);
+    // Don't need to use frame in save/load passed for convince if caller wants to
+    // also keep track of states
+    fn save_game_state(&mut self, frame: FrameSize) -> Self::SavedState;
+    fn load_game_state(&mut self, saved_state: Self::SavedState, frame: FrameSize);
     fn advance_frame(&mut self);
     fn on_event();
 }
