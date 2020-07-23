@@ -66,7 +66,7 @@ impl Display for InputQueueError {
                 write!(fmt, "Tried to request frame number of {}, which was not found", given)
             }
             InputQueueError::GetDurningPrediction => {
-                write!(fmt, "Attempted to get input when there is a prediction error.")
+                write!(fmt, "Attempted to get input when there is a prediction error. You need to rollback")
             }
             InputQueueError::BadInput => write!(fmt, "Given input with None for frame number"),
         }
@@ -88,6 +88,7 @@ pub enum SyncError {
         expected: FrameSize,
     },
     StateNotFound(FrameSize),
+    NotInRollback,
 }
 
 impl Display for SyncError {
@@ -112,8 +113,10 @@ impl Display for SyncError {
                 "After rolling back frame count is at {}, when it should be at {}",
                 given, expected
             ),
-            SyncError::StateNotFound(frame) =>
+            SyncError::StateNotFound(frame) => {
                 write!(fmt, "frame {} not found in saved states", frame)
+            },
+            SyncError::NotInRollback => write!(fmt, "Called post_adjust_simulation when not in a rollback")
         }
     }
 }

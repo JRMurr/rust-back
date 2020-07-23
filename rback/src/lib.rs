@@ -1,6 +1,6 @@
 // #![warn(missing_docs)]
 
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::fmt::Debug;
 
 pub mod error;
 pub(crate) mod game_input_frame;
@@ -11,7 +11,6 @@ pub mod sync;
 // at 60fps...
 type FrameSize = u32;
 pub(crate) type FrameIndex = Option<FrameSize>;
-
 /// Input passed to be used in rollbacks must satisfy this trait
 pub trait GameInput: Clone + Debug + PartialEq {}
 impl<T> GameInput for T where T: Clone + Debug + PartialEq {}
@@ -26,4 +25,21 @@ pub trait SyncCallBacks {
     fn on_event();
 }
 
-type RcRef<T> = Rc<RefCell<T>>;
+#[derive(PartialEq, Debug)]
+pub struct SaveFrame {
+    pub frame: FrameSize,
+}
+
+#[derive(PartialEq, Debug)]
+pub struct RollbackState {
+    pub frame: FrameSize,
+    pub num_steps: FrameSize,
+}
+
+// pub enum RequiredAction {
+//     /// Save current game state which can be looked up by the frame param
+//     SaveState(SaveFrame),
+//     /// Load state corresponding to the frame param and advance your game
+// state     /// by num_steps
+//     Rollback(RollbackState),
+// }

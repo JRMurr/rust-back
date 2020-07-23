@@ -139,7 +139,6 @@ impl<T: GameInput> InputQueue<T> {
         // TODO: assert prediction frame is >= 0?
         let mut input = self.prediction.clone();
         input.frame = Some(requested_frame);
-        println!("input: {:#?}", input);
         Ok(input)
     }
 
@@ -180,13 +179,6 @@ impl<T: GameInput> InputQueue<T> {
         self.last_added_frame = input.frame;
 
         if let Some(prediction_frame) = self.prediction.frame {
-            println!("---------------------------------");
-            println!(
-                "self.first_incorrect_frame: {:#?}",
-                self.first_incorrect_frame
-            );
-            println!("self.prediction: {:#?}", self.prediction);
-            println!("input: {:#?}", input);
             debug_assert_eq!(
                 frame_num, prediction_frame,
                 "need added input to be the prediction frame, got {}, expected {}",
@@ -196,7 +188,6 @@ impl<T: GameInput> InputQueue<T> {
             // We have been doing predictions so check if what we have
             // prediction matched the inputs we got
             if self.first_incorrect_frame.is_none() && self.prediction.input != input.input {
-                println!("--- HERE");
                 info!(
                     "frame {} does not match prediction.  marking error.",
                     frame_num
