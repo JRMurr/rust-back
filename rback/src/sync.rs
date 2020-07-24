@@ -184,7 +184,7 @@ impl<T: GameInput> Sync<T> {
     // pre_roll_back and post_roll_back map to AdjustSimulation in ggpo
     pub fn pre_roll_back(&mut self, seek_to: FrameSize) -> Result<RollbackState, SyncError> {
         let count = self.frame_count - seek_to;
-        self.target_post_roll_back_frame = Some(count);
+        self.target_post_roll_back_frame = Some(self.frame_count);
 
         self.load_frame(seek_to, count)
         // TODO: ggpo has assert here https://github.com/pond3r/ggpo/blob/7ddadef8546a7d99ff0b3530c6056bc8ee4b9c0a/src/lib/ggpo/sync.cpp#L156
@@ -200,6 +200,7 @@ impl<T: GameInput> Sync<T> {
                         expected: frame_count,
                     })
                 } else {
+                    self.target_post_roll_back_frame = None;
                     Ok(())
                 }
             }
@@ -320,7 +321,8 @@ mod tests {
         assert_eq!(sync.synchronize_inputs()?, vec![Some("second"), None]);
         advance_frame(&mut sync, 2, None)?;
 
-        // we got inputs 3 frames late
+        // we got inputs for frame 0 on the start of frame 2 so we should roll back to
+        // the start of frame 2
         sync.add_local_input(0, ("third", 2).into())?;
         sync.add_remote_input(1, ("remote_1", 0).into())?;
 
@@ -348,6 +350,11 @@ mod tests {
             }
         );
 
+        // should get remote input now and use old local input
+        assert_eq!(
+            sync.synchronize_inputs()?,
+            vec![Some("first"), Some("remote_1")]
+        );
         advance_frame(&mut sync, 1, None)?;
 
         // not enough rollback
@@ -359,7 +366,43 @@ mod tests {
             }
         );
 
+        // does not yet have the next input so it should predict with the last remote
+        assert_eq!(
+            sync.synchronize_inputs()?,
+            vec![Some("second"), Some("remote_1")]
+        );
         advance_frame(&mut sync, 2, None)?;
+
+        // Correctly rolled back so no error
+        sync.post_roll_back()?;
+
+        // now play the frame as normal
+        advance_frame(&mut sync, 3, None)?;
+
+        // we get inputs for frame 1 on the start of frame 3 so roll back to here
+        sync.add_local_input(0, ("fourth", 3).into())?;
+        sync.add_remote_input(1, ("remote_2", 1).into())?;
+
+        // This would be called every frame with increment_frame
+        assert_eq!(
+            sync.check_simulation()?,
+            Some(RollbackState {
+                frame: 1,
+                num_steps: 2,
+            },)
+        );
+
+        assert_eq!(
+            sync.synchronize_inputs()?,
+            vec![Some("second"), Some("remote_2")]
+        );
+        advance_frame(&mut sync, 2, None)?;
+
+        assert_eq!(
+            sync.synchronize_inputs()?,
+            vec![Some("third"), Some("remote_2")]
+        );
+        advance_frame(&mut sync, 3, None)?;
 
         // Correctly rolled back so no error
         sync.post_roll_back()?;
