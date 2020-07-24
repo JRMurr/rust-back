@@ -18,7 +18,10 @@ impl NetworkHandler {
     /// listen on
     pub fn new(server_addr: SocketAddr, remote_addr: SocketAddr) -> Self {
         let socket = Socket::bind(server_addr).unwrap();
-        NetworkHandler { socket, remote_addr }
+        NetworkHandler {
+            socket,
+            remote_addr,
+        }
     }
 
     pub fn get_messages(&mut self) -> Vec<NetworkMessage> {
