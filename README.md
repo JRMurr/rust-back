@@ -1,5 +1,5 @@
 # Rust-back
-A rust port of [GGPO] (https://github.com/pond3r/ggpo)
+A rust port of [GGPO](https://github.com/pond3r/ggpo)
 
 ## Diferences from GGPO
 In the C++ version of GGPO you pass a struct of callbacks ggpo will call to save/load state, advance frame/etc. 
