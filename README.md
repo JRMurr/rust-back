@@ -6,3 +6,11 @@ In the C++ version of GGPO you pass a struct of callbacks ggpo will call to save
 This works fine in C++ but due to the borrow checker this causes issues in rust. 
 
 So instead on certain calls to get inputs/check for rollbacks the library will return with actions you should take like save frame or rollback to frame X and simulate N frames.
+
+
+TODO:
+
+ - Make it obvious when the user should remove frames from their buffer
+    - could make a struct/trait that would handle the buffer for them (This seems like the better way of doing it)
+    - or just make it obvious in the docs on load you can throw out older frames
+    
