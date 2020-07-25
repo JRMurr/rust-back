@@ -15,3 +15,7 @@ TODO:
   - could make a struct/trait that would handle the buffer for them (This seems like the better way of doing it)
   - or just make it obvious in the docs on load you can throw out older frames
 - Need a way to handle the "gap" when one player is consistently ahead we need them to "wait" for the other player to catchup so they dont rollback as much
+- Go through and clean up pubs that aren't really needed
+
+Random notes:
+https://twitter.com/Pond3r/status/1187554043813486597

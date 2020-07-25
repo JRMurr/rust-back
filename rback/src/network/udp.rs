@@ -48,7 +48,7 @@ impl NetworkHandler {
     }
 
     pub fn queue_msg(&mut self, payload: &NetworkMessage) -> Result<(), ErrorKind> {
-        let packet = Packet::reliable_unordered(self.remote_addr, serialize(payload).unwrap());
+        let packet = Packet::reliable_ordered(self.remote_addr, serialize(payload).unwrap(), None);
         self.socket.send(packet)
     }
 
