@@ -307,24 +307,24 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let mut q: InputQueue<&str> = InputQueue::new();
+        let mut q: InputQueue<String> = InputQueue::new();
         let input = GameInputFrame {
             frame: Some(0),
-            input: Some("hi"),
+            input: Some("hi".into()),
         };
         let added = q.add_input(input).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
                 frame: Some(0),
-                input: Some("hi")
+                input: Some("hi".into())
             }
         );
 
         // Try to add same frame number
         let input = GameInputFrame {
             frame: Some(0),
-            input: Some("hello"),
+            input: Some("hello".into()),
         };
         let added = q.add_input(input);
         assert!(added.is_err());
@@ -340,7 +340,7 @@ mod tests {
         // try bad frame number
         let input = GameInputFrame {
             frame: Some(10),
-            input: Some("hello"),
+            input: Some("hello".into()),
         };
 
         let added = q.add_input(input);
@@ -357,30 +357,30 @@ mod tests {
         // correct frame number
         let input = GameInputFrame {
             frame: Some(1),
-            input: Some("its real"),
+            input: Some("its real".into()),
         };
         let added = q.add_input(input).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
                 frame: Some(1),
-                input: Some("its real")
+                input: Some("its real".into())
             }
         );
     }
 
     #[test]
     fn test_get_input() -> Result<(), InputQueueError> {
-        let mut q: InputQueue<&str> = InputQueue::new();
+        let mut q: InputQueue<String> = InputQueue::new();
 
         let input = GameInputFrame {
             frame: Some(0),
-            input: Some("hi"),
+            input: Some("hi".into()),
         };
         q.add_input(input)?;
         let input = GameInputFrame {
             frame: Some(1),
-            input: Some("hello"),
+            input: Some("hello".into()),
         };
         q.add_input(input)?;
 
@@ -389,14 +389,14 @@ mod tests {
             q.get_input(0)?,
             GameInputFrame {
                 frame: Some(0),
-                input: Some("hi"),
+                input: Some("hi".into()),
             }
         );
         assert_eq!(
             q.get_input(1)?,
             GameInputFrame {
                 frame: Some(1),
-                input: Some("hello"),
+                input: Some("hello".into()),
             }
         );
 
@@ -409,7 +409,7 @@ mod tests {
             q.get_input(3)?,
             GameInputFrame {
                 frame: Some(3),
-                input: Some("hello"),
+                input: Some("hello".into()),
             }
         );
         Ok(())
@@ -417,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_get_empty() -> Result<(), InputQueueError> {
-        let mut q: InputQueue<&str> = InputQueue::new();
+        let mut q: InputQueue<String> = InputQueue::new();
         assert_eq!(
             q.get_input(3)?,
             GameInputFrame {

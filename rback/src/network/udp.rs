@@ -9,6 +9,8 @@ use std::{net::SocketAddr, time::Instant, vec::Vec};
 pub struct NetworkHandler<T: GameInput> {
     /// Listens and sends packets on this [Socket]
     socket: Socket,
+    /* TODO: can probs get rid of this and make each func define the
+     * generic */
     game_input: PhantomData<T>,
 }
 
@@ -23,13 +25,13 @@ impl<T: GameInput> NetworkHandler<T> {
         }
     }
 
-    pub fn get_messages(&mut self) -> Vec<NetworkMessage> {
+    pub fn get_messages(&mut self) -> Vec<NetworkMessage<T>> {
         self.socket.manual_poll(Instant::now());
         let mut messages = Vec::new();
         while let Some(event) = self.socket.recv() {
             match event {
                 SocketEvent::Packet(packet) => {
-                    let msg: NetworkMessage = deserialize(packet.payload()).unwrap();
+                    let msg: NetworkMessage<T> = deserialize(packet.payload()).unwrap();
                     println!("message: {:#?}", msg);
                     messages.push(msg);
                 }
@@ -42,7 +44,7 @@ impl<T: GameInput> NetworkHandler<T> {
 
     pub fn send_msg_now(
         &mut self,
-        payload: &NetworkMessage,
+        payload: &NetworkMessage<T>,
         remote_addr: &SocketAddr,
     ) -> Result<(), ErrorKind> {
         self.queue_msg(payload, remote_addr)?;
@@ -52,7 +54,7 @@ impl<T: GameInput> NetworkHandler<T> {
 
     pub fn queue_msg(
         &mut self,
-        payload: &NetworkMessage,
+        payload: &NetworkMessage<T>,
         remote_addr: &SocketAddr,
     ) -> Result<(), ErrorKind> {
         let packet = Packet::reliable_unordered(*remote_addr, serialize(payload).unwrap());
@@ -80,10 +82,10 @@ mod tests {
 
     #[test]
     fn queue_and_send_messages() {
-        let mut local: NetworkHandler<&str> = NetworkHandler::new(server_address());
-        let mut remote: NetworkHandler<&str> = NetworkHandler::new(remote_address());
-        let payload1 = NetworkMessage::make_input(&"msg1");
-        let payload2 = NetworkMessage::make_input(&"msg2");
+        let mut local: NetworkHandler<String> = NetworkHandler::new(server_address());
+        let mut remote: NetworkHandler<String> = NetworkHandler::new(remote_address());
+        let payload1 = NetworkMessage::make_input(&"msg1".into());
+        let payload2 = NetworkMessage::make_input(&"msg2".into());
         local.queue_msg(&payload1, &remote_address()).unwrap();
         local.queue_msg(&payload2, &remote_address()).unwrap();
 

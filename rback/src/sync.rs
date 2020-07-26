@@ -242,16 +242,25 @@ impl<T: GameInput> Sync<T> {
 mod tests {
     use super::*;
 
+    impl From<(&str, FrameSize)> for GameInputFrame<String> {
+        fn from(inner: (&str, FrameSize)) -> Self {
+            Self {
+                input: Some(inner.0.into()),
+                frame: Some(inner.1),
+            }
+        }
+    }
+
     #[test]
     fn test_add() {
-        let mut sync: Sync<&str> = Sync::new(4);
+        let mut sync: Sync<String> = Sync::new(4);
         // first frame adds
         let added = sync.add_input(0, ("hi_0", 0).into()).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
                 frame: Some(0),
-                input: Some("hi_0"),
+                input: Some("hi_0".into()),
             }
         );
         let added = sync.add_input(1, ("hi_1", 0).into()).unwrap();
@@ -259,7 +268,7 @@ mod tests {
             added,
             GameInputFrame {
                 frame: Some(0),
-                input: Some("hi_1"),
+                input: Some("hi_1".into()),
             }
         );
 
@@ -269,20 +278,20 @@ mod tests {
 
     #[test]
     fn test_add_local_input() {
-        let mut sync: Sync<&str> = Sync::new(4);
+        let mut sync: Sync<String> = Sync::new(4);
 
         let added = sync.add_local_input(0, ("hi_0", 0).into()).unwrap();
         assert_eq!(
             added,
             GameInputFrame {
                 frame: Some(0),
-                input: Some("hi_0"),
+                input: Some("hi_0".into()),
             }
         );
     }
 
     fn advance_frame(
-        sync: &mut Sync<&str>,
+        sync: &mut Sync<String>,
         expected_frame: FrameSize,
         expected_check_simulation_res: Option<RollbackState>,
     ) -> Result<(), SyncError> {
@@ -298,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_check_simulation() -> Result<(), SyncError> {
-        let mut sync: Sync<&str> = Sync::new(4);
+        let mut sync: Sync<String> = Sync::new(4);
 
         // TODO: for now we require they call save state before doing anything
         assert_eq!(sync.save_current_frame(), SaveFrame { frame: 0 });
@@ -309,7 +318,7 @@ mod tests {
         assert_eq!(
             sync.synchronize_inputs()?,
             vec![
-                Some("first"),
+                Some("first".into()),
                 // second queue has nothing to predict from so it will return null input
                 None
             ]
@@ -319,7 +328,10 @@ mod tests {
 
         // simulate a few more frames, then get the inputs for the first
         sync.add_local_input(0, ("second", 1).into())?;
-        assert_eq!(sync.synchronize_inputs()?, vec![Some("second"), None]);
+        assert_eq!(
+            sync.synchronize_inputs()?,
+            vec![Some("second".into()), None]
+        );
         advance_frame(&mut sync, 2, None)?;
 
         // we got inputs for frame 0 on the start of frame 2 so we should roll back to
@@ -354,7 +366,7 @@ mod tests {
         // should get remote input now and use old local input
         assert_eq!(
             sync.synchronize_inputs()?,
-            vec![Some("first"), Some("remote_1")]
+            vec![Some("first".into()), Some("remote_1".into())]
         );
         advance_frame(&mut sync, 1, None)?;
 
@@ -370,7 +382,7 @@ mod tests {
         // does not yet have the next input so it should predict with the last remote
         assert_eq!(
             sync.synchronize_inputs()?,
-            vec![Some("second"), Some("remote_1")]
+            vec![Some("second".into()), Some("remote_1".into())]
         );
         advance_frame(&mut sync, 2, None)?;
 
@@ -395,13 +407,13 @@ mod tests {
 
         assert_eq!(
             sync.synchronize_inputs()?,
-            vec![Some("second"), Some("remote_2")]
+            vec![Some("second".into()), Some("remote_2".into())]
         );
         advance_frame(&mut sync, 2, None)?;
 
         assert_eq!(
             sync.synchronize_inputs()?,
-            vec![Some("third"), Some("remote_2")]
+            vec![Some("third".into()), Some("remote_2".into())]
         );
         advance_frame(&mut sync, 3, None)?;
 

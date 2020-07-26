@@ -20,7 +20,7 @@ impl<T: GameInput> UdpProtocol<T> {
     pub fn send_msg(
         &self,
         udp: &mut NetworkHandler<T>,
-        payload: &NetworkMessage,
+        payload: &NetworkMessage<T>,
     ) -> Result<(), ErrorKind> {
         udp.send_msg_now(payload, &self.remote_addr)
     }
