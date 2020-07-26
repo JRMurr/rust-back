@@ -128,3 +128,21 @@ impl From<InputQueueError> for SyncError {
         SyncError::QueueError(inner)
     }
 }
+
+#[derive(Debug, PartialEq)]
+pub enum BackendError {
+    PlayerOutOfRange { given: u8, num_players: u8 },
+}
+impl Display for BackendError {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            BackendError::PlayerOutOfRange { given, num_players } => write!(
+                fmt,
+                "given player number of {}, num players is {}",
+                given, num_players
+            ),
+        }
+    }
+}
+
+impl Error for BackendError {}

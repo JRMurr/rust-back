@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 // TODO: simplify errors to only be the errors that could be thrown in that func
 
 const NUM_PLAYERS: u8 = 2;
+#[derive(Debug)]
 pub struct Sync<T: GameInput> {
     max_prediction_frames: FrameSize,
     pub(crate) frame_count: FrameSize,

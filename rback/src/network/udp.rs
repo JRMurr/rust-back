@@ -1,26 +1,25 @@
-use crate::network::message::NetworkMessage;
+use crate::{network::message::NetworkMessage, GameInput};
+use std::marker::PhantomData;
+
 use bincode::{deserialize, serialize};
 use laminar::{ErrorKind, Packet, Socket, SocketEvent};
 use std::{net::SocketAddr, time::Instant, vec::Vec};
 
 /// Handles sending and receiving packets
-pub struct NetworkHandler {
-    /// Listens and sends packets
+pub struct NetworkHandler<T: GameInput> {
+    /// Listens and sends packets on this [Socket]
     socket: Socket,
-
-    /// Remote address to send packets
-    remote_addr: SocketAddr,
+    game_input: PhantomData<T>,
 }
 
-impl NetworkHandler {
-    /// Creates a new [NetworkHandler] where client_addr is the address the
-    /// client will send from and server_addr is the address the server will
-    /// listen on
-    pub fn new(server_addr: SocketAddr, remote_addr: SocketAddr) -> Self {
+impl<T: GameInput> NetworkHandler<T> {
+    /// Creates a new [NetworkHandler] where server_addr is the address the
+    /// server will listen on
+    pub fn new(server_addr: SocketAddr) -> Self {
         let socket = Socket::bind(server_addr).unwrap();
         NetworkHandler {
             socket,
-            remote_addr,
+            game_input: PhantomData,
         }
     }
 
@@ -30,7 +29,7 @@ impl NetworkHandler {
         while let Some(event) = self.socket.recv() {
             match event {
                 SocketEvent::Packet(packet) => {
-                    let msg = deserialize::<NetworkMessage>(packet.payload()).unwrap();
+                    let msg: NetworkMessage = deserialize(packet.payload()).unwrap();
                     println!("message: {:#?}", msg);
                     messages.push(msg);
                 }
@@ -41,14 +40,22 @@ impl NetworkHandler {
         messages
     }
 
-    pub fn send_msg_now(&mut self, payload: &NetworkMessage) -> Result<(), ErrorKind> {
-        self.queue_msg(payload)?;
+    pub fn send_msg_now(
+        &mut self,
+        payload: &NetworkMessage,
+        remote_addr: &SocketAddr,
+    ) -> Result<(), ErrorKind> {
+        self.queue_msg(payload, remote_addr)?;
         self.empty_msg_queue();
         Ok(())
     }
 
-    pub fn queue_msg(&mut self, payload: &NetworkMessage) -> Result<(), ErrorKind> {
-        let packet = Packet::reliable_ordered(self.remote_addr, serialize(payload).unwrap(), None);
+    pub fn queue_msg(
+        &mut self,
+        payload: &NetworkMessage,
+        remote_addr: &SocketAddr,
+    ) -> Result<(), ErrorKind> {
+        let packet = Packet::reliable_unordered(*remote_addr, serialize(payload).unwrap());
         self.socket.send(packet)
     }
 
@@ -73,12 +80,12 @@ mod tests {
 
     #[test]
     fn queue_and_send_messages() {
-        let mut local = NetworkHandler::new(server_address(), remote_address());
-        let mut remote = NetworkHandler::new(remote_address(), server_address());
-        let payload1 = NetworkMessage::make_input("msg1");
-        let payload2 = NetworkMessage::make_input("msg2");
-        local.queue_msg(&payload1).unwrap();
-        local.queue_msg(&payload2).unwrap();
+        let mut local: NetworkHandler<&str> = NetworkHandler::new(server_address());
+        let mut remote: NetworkHandler<&str> = NetworkHandler::new(remote_address());
+        let payload1 = NetworkMessage::make_input(&"msg1");
+        let payload2 = NetworkMessage::make_input(&"msg2");
+        local.queue_msg(&payload1, &remote_address()).unwrap();
+        local.queue_msg(&payload2, &remote_address()).unwrap();
 
         // queue has not been emptied yet so no messages sent
         assert_eq!(remote.get_messages(), vec![]);

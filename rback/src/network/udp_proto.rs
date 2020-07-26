@@ -1,13 +1,27 @@
-use crate::network::udp::NetworkHandler;
-use std::net::SocketAddr;
-pub struct UdpProtocol {
-    udp: NetworkHandler,
+use crate::{
+    network::{message::NetworkMessage, udp::NetworkHandler},
+    GameInput,
+};
+use laminar::ErrorKind;
+use std::{marker::PhantomData, net::SocketAddr};
+pub struct UdpProtocol<T: GameInput> {
+    remote_addr: SocketAddr,
+    game_input: PhantomData<T>,
 }
 
-impl UdpProtocol {
-    pub fn new(server_addr: SocketAddr, remote_addr: SocketAddr) -> Self {
+impl<T: GameInput> UdpProtocol<T> {
+    pub fn new(server_addr: SocketAddr) -> Self {
         Self {
-            udp: NetworkHandler::new(server_addr, remote_addr),
+            remote_addr: server_addr,
+            game_input: PhantomData,
         }
+    }
+
+    pub fn send_msg(
+        &self,
+        udp: &mut NetworkHandler<T>,
+        payload: &NetworkMessage,
+    ) -> Result<(), ErrorKind> {
+        udp.send_msg_now(payload, &self.remote_addr)
     }
 }
