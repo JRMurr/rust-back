@@ -11,20 +11,22 @@ pub mod input_queue;
 pub mod network;
 pub mod sync;
 pub use game_input::GameInput;
+pub mod constants;
+pub mod events;
 
 // With this we can keep track of about 3 years worth of frames
 // at 60fps...
 type FrameSize = u32;
 pub(crate) type FrameIndex = Option<FrameSize>;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Hash, Eq)]
 pub enum PlayerType {
     Local,
     Remote(SocketAddr),
     Spectator(SocketAddr),
 }
-#[derive(PartialEq, Debug)]
 
+#[derive(PartialEq, Debug, Hash, Eq)]
 pub struct Player {
     player_number: u8,
     player_type: PlayerType,

@@ -131,11 +131,13 @@ impl From<InputQueueError> for SyncError {
 
 #[derive(Debug, PartialEq)]
 pub enum BackendError {
+    SyncError(SyncError),
     PlayerOutOfRange { given: u8, num_players: u8 },
 }
 impl Display for BackendError {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            BackendError::SyncError(e) => write!(fmt, "Something went wrong in sync. Error: {}", e),
             BackendError::PlayerOutOfRange { given, num_players } => write!(
                 fmt,
                 "given player number of {}, num players is {}",
@@ -146,3 +148,9 @@ impl Display for BackendError {
 }
 
 impl Error for BackendError {}
+
+impl From<SyncError> for BackendError {
+    fn from(inner: SyncError) -> Self {
+        BackendError::SyncError(inner)
+    }
+}

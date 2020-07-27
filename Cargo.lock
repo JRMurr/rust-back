@@ -1720,6 +1720,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bytes",
+ "crossbeam-channel",
  "laminar",
  "log",
  "serde",

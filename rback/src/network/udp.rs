@@ -1,28 +1,50 @@
 use crate::{network::message::NetworkMessage, GameInput};
-use std::marker::PhantomData;
-
 use bincode::{deserialize, serialize};
-use laminar::{ErrorKind, Packet, Socket, SocketEvent};
-use std::{net::SocketAddr, time::Instant, vec::Vec};
+use crossbeam_channel::Sender;
+use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
+use std::{
+    marker::PhantomData,
+    net::SocketAddr,
+    time::{Duration, Instant},
+    vec::Vec,
+};
 
+#[derive(Debug)]
 /// Handles sending and receiving packets
 pub struct NetworkHandler<T: GameInput> {
     /// Listens and sends packets on this [Socket]
     socket: Socket,
-    /* TODO: can probs get rid of this and make each func define the
-     * generic */
-    game_input: PhantomData<T>,
+    /* TODO: can get rid of this and make each func define the
+     * generic  if we want */
+    game_input: PhantomData<*const T>,
 }
 
 impl<T: GameInput> NetworkHandler<T> {
     /// Creates a new [NetworkHandler] where server_addr is the address the
     /// server will listen on
     pub fn new(server_addr: SocketAddr) -> Self {
-        let socket = Socket::bind(server_addr).unwrap();
+        let config = Config {
+            // If we don't send packets at a consistent rate (aka every frame)
+            // laminar will try to send a heartbeat to keep the connection alive
+            // since they should be sending packets at least once a second we are probably fine to
+            // ignore it
+            heartbeat_interval: None,
+            // should be (max rollback frames + local delay frame) * (time per frame) * 2
+            // the *2 is because its round trip
+            // 300 gives you about 9 frames of roll back + delay at 60fps
+            rtt_max_value: 300,
+            idle_connection_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let socket = Socket::bind_with_config(server_addr, config).unwrap();
         NetworkHandler {
             socket,
             game_input: PhantomData,
         }
+    }
+
+    pub fn get_sender(&mut self) -> Sender<Packet> {
+        self.socket.get_packet_sender()
     }
 
     pub fn get_messages(&mut self) -> Vec<NetworkMessage<T>> {

@@ -126,7 +126,7 @@ impl<T: GameInput> Sync<T> {
 
         // TODO: ggpo has this but not sure why yet
         // TODO: could this be called twice if 2 queues add input before
-        // incrementating? It should really happen but maybe check if q = 0 so it only
+        // incrementing? It should really happen but maybe check if q = 0 so it only
         // does it for local?
         if self.frame_count == 0 {
             // self.save_current_frame()
