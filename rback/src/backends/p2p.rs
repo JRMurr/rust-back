@@ -7,8 +7,9 @@ use crate::{
         udp_proto::{UdpEvent, UdpProtocol},
     },
     sync::Sync,
-    FrameSize, GameInput, Player, PlayerType, SaveFrame,
+    FrameSize, GameInput, Player, PlayerType, RollbackState, SaveFrame,
 };
+use either;
 use std::{collections::HashMap, net::SocketAddr};
 // TODO: probably will extract some of this into a trait when i add spectator
 #[derive(Debug)]
@@ -73,26 +74,45 @@ impl<T: GameInput> Peer2PeerBackend<T, states::InRollback> {
         self.sync.increment_frame()
     }
 }
-
+// type IncrRes = (Peer2PeerBackend<T, State>, Option<RollbackState>);
 impl<T: GameInput> Peer2PeerBackend<T, states::Normal> {
     pub fn sync_inputs(&mut self) -> Result<Vec<Option<T>>, BackendError> {
         // TODO: handle  player disconnect
         self.sync.synchronize_inputs().map_err(BackendError::from)
     }
 
-    pub fn increment_frame(mut self) -> Result<(), BackendError> {
+    fn into_rollback(self, state: states::InRollback) -> Peer2PeerBackend<T, states::InRollback> {
+        Peer2PeerBackend {
+            sync: self.sync,
+            net_handler: self.net_handler,
+            players: self.players,
+            num_players: self.num_players,
+            state,
+        }
+    }
+
+    pub fn increment_frame(
+        mut self,
+    ) -> Result<
+        (
+            either::Either<
+                Peer2PeerBackend<T, states::InRollback>,
+                Peer2PeerBackend<T, states::PostRollback>,
+            >,
+            SaveFrame,
+            Vec<Event>,
+        ),
+        BackendError,
+    > {
         let saved_frame = self.sync.increment_frame();
         self.net_handler.empty_msg_queue();
-        let events = self.poll_udp_protocol_events();
+        let events = self.poll_udp_protocol_events()?;
         match self.sync.check_simulation()? {
             Some(state) => {
-                // transition to rollback
-                todo!()
+                let state = states::InRollback { load_frame: state };
+                Ok((either::Left(self.into_rollback(state)), saved_frame, events))
             }
-            None => {
-                // transition to post rollback
-                todo!()
-            }
+            None => Ok((either::Right(self.into()), saved_frame, events)),
         }
     }
 
