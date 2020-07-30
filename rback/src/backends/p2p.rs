@@ -9,7 +9,6 @@ use crate::{
     sync::Sync,
     FrameSize, GameInput, Player, PlayerType, RollbackState, SaveFrame,
 };
-use either;
 use std::{collections::HashMap, net::SocketAddr};
 // TODO: probably will extract some of this into a trait when i add spectator
 #[derive(Debug)]
@@ -74,7 +73,15 @@ impl<T: GameInput> Peer2PeerBackend<T, states::InRollback> {
         self.sync.increment_frame()
     }
 }
-// type IncrRes = (Peer2PeerBackend<T, State>, Option<RollbackState>);
+
+pub type IncrementRes<T> = (
+    either::Either<
+        Peer2PeerBackend<T, states::InRollback>,
+        Peer2PeerBackend<T, states::PostRollback>,
+    >,
+    SaveFrame,
+    Vec<Event>,
+);
 impl<T: GameInput> Peer2PeerBackend<T, states::Normal> {
     pub fn sync_inputs(&mut self) -> Result<Vec<Option<T>>, BackendError> {
         // TODO: handle  player disconnect
@@ -91,19 +98,7 @@ impl<T: GameInput> Peer2PeerBackend<T, states::Normal> {
         }
     }
 
-    pub fn increment_frame(
-        mut self,
-    ) -> Result<
-        (
-            either::Either<
-                Peer2PeerBackend<T, states::InRollback>,
-                Peer2PeerBackend<T, states::PostRollback>,
-            >,
-            SaveFrame,
-            Vec<Event>,
-        ),
-        BackendError,
-    > {
+    pub fn increment_frame(mut self) -> Result<IncrementRes<T>, BackendError> {
         let saved_frame = self.sync.increment_frame();
         self.net_handler.empty_msg_queue();
         let events = self.poll_udp_protocol_events()?;
@@ -151,6 +146,56 @@ impl<T: GameInput> Peer2PeerBackend<T, states::Normal> {
             .iter()
             .filter_map(|e| self.on_udp_protocol_event(e))
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const SERVER_ADDR: &str = "127.0.0.1:12345";
+    const REMOTE_ADDR: &str = "127.0.0.1:12346";
+
+    fn remote_address() -> SocketAddr {
+        REMOTE_ADDR.parse().unwrap()
+    }
+
+    fn server_address() -> SocketAddr {
+        SERVER_ADDR.parse().unwrap()
+    }
+
+    enum Test {
+        Normal(Peer2PeerBackend<String, states::Normal>),
+        InRollback(Peer2PeerBackend<String, states::InRollback>),
+        PostRollback(Peer2PeerBackend<String, states::PostRollback>),
+    }
+
+    impl Test {
+        fn increment_frame(&mut self) {
+            let x = match self {
+                Test::Normal(a) => a.increment_frame(),
+                _ => todo!(),
+            };
+        }
+    }
+
+    struct TestStruct {
+        p2p: Test,
+    }
+
+    impl TestStruct {
+        fn tmp(&mut self) {
+            let x = match self.p2p {
+                Test::Normal(a) => a.increment_frame(),
+                _ => todo!(),
+            };
+        }
+    }
+
+    #[test]
+    fn test_tmp() {
+        let mut p2p: Peer2PeerBackend<String, states::Setup> =
+            Peer2PeerBackend::new(server_address(), 4, 2);
+        // let p2p: Peer2PeerBackend<String, states::Normal> =
     }
 }
 
